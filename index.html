@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Notes App Pro Fix</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    font-family: Arial;
+    background: #f4f6f9;
+    margin: 0;
+    display: flex;
+    justify-content: center;
+    user-select: none;
+  }
+
+  .container { width: 100%; max-width: 420px; padding: 16px; }
+
+  .form {
+    background: #fff;
+    padding: 14px;
+    border-radius: 14px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.06);
+    margin-bottom: 14px;
+  }
+
+  input, textarea {
+    width: 100%;
+    margin-top: 8px;
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid #e5e7eb;
+    font-size: 13px;
+    outline: none;
+  }
+
+  textarea { resize: none; }
+
+  button {
+    margin-top: 10px;
+    padding: 9px 12px;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: 0.15s;
+  }
+
+  button:active { transform: scale(0.92); }
+
+  .add { background: #2563eb; color: white; }
+
+  .card {
+    background: #fff;
+    padding: 12px;
+    border-radius: 14px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.06);
+    margin-bottom: 10px;
+  }
+
+  h3 { margin: 0 0 6px 0; font-size: 14px; }
+
+  p {
+    margin: 0;
+    font-size: 13px;
+    color: #555;
+    white-space: pre-wrap;
+  }
+
+  .btn-group {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .copy { background: #111827; color: white; }
+  .delete { background: #dc2626; color: white; }
+
+  /* TOAST FIX */
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #111827;
+    color: white;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    opacity: 0;
+    transition: 0.25s;
+    pointer-events: none;
+  }
+
+  .toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-5px);
+  }
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <div class="form">
+    <h3>Tambah Catatan</h3>
+    <input id="title" placeholder="Judul..." />
+    <textarea id="content" rows="3" placeholder="Isi catatan..."></textarea>
+    <button class="add" onclick="addNote()">Tambah</button>
+  </div>
+
+  <div id="notes"></div>
+
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const supabaseUrl = "https://wepqievfgfqsoilynrhc.supabase.co";
+const supabaseKey = "sb_publishable_AUDqRGYqJi1pA7Y_QOIa-A_bIz-_zI1";
+
+const client = supabase.createClient(supabaseUrl, supabaseKey);
+
+/* ================= TOAST ================= */
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(() => {
+    t.classList.remove("show");
+  }, 1200);
+}
+
+/* =============== COPY FIX 100% =============== */
+async function copyText(text) {
+  try {
+    // PRIMARY (modern browser)
+    await navigator.clipboard.writeText(text);
+    toast("Tersalin 📋");
+  } catch (err) {
+    // FALLBACK (kalau clipboard gagal)
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+
+    toast("Tersalin 📋 (fallback)");
+  }
+}
+
+/* ================= LOAD ================= */
+async function loadNotes() {
+  const { data, error } = await client
+    .from("notes")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.log(error.message);
+    return;
+  }
+
+  const box = document.getElementById("notes");
+  box.innerHTML = "";
+
+  data.forEach(note => {
+    const card = document.createElement("div");
+    card.className = "card";
+
+    const title = document.createElement("h3");
+    title.textContent = note.title;
+
+    const content = document.createElement("p");
+    content.textContent = note.content;
+
+    const btnGroup = document.createElement("div");
+    btnGroup.className = "btn-group";
+
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "copy";
+    copyBtn.textContent = "Copy";
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "delete";
+    delBtn.textContent = "Hapus";
+
+    /* COPY */
+    copyBtn.addEventListener("click", () => {
+      copyText(note.content);
+    });
+
+    /* DELETE */
+    delBtn.addEventListener("click", async () => {
+      await client.from("notes").delete().eq("id", note.id);
+      toast("Dihapus 🗑️");
+      loadNotes();
+    });
+
+    btnGroup.appendChild(copyBtn);
+    btnGroup.appendChild(delBtn);
+
+    card.appendChild(title);
+    card.appendChild(content);
+    card.appendChild(btnGroup);
+
+    box.appendChild(card);
+  });
+}
+
+/* ================= ADD ================= */
+async function addNote() {
+  const title = document.getElementById("title").value.trim();
+  const content = document.getElementById("content").value.trim();
+
+  if (!title || !content) return;
+
+  const { error } = await client
+    .from("notes")
+    .insert([{ title, content }]);
+
+  if (error) {
+    console.log(error.message);
+    return;
+  }
+
+  document.getElementById("title").value = "";
+  document.getElementById("content").value = "";
+
+  toast("Catatan ditambah ✅");
+  loadNotes();
+}
+
+loadNotes();
+</script>
+
+</body>
+</html>
